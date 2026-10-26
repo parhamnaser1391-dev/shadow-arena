@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Shadow Arena</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080d14;color:#eaf2ff;font-family:Tahoma,Arial,sans-serif;touch-action:none}
+#game{display:block;width:100vw;height:100dvh;background:#101b25}
+#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none;gap:10px}
+.panel{background:#07111ddd;border:1px solid #345064;border-radius:12px;padding:8px 11px;box-shadow:0 4px 18px #0006;font-size:12px}
+#map{width:130px;height:76px;border-radius:8px;border:1px solid #5b7b8e;background:#182733}
+#status{direction:rtl;line-height:1.8}
+#controls{position:fixed;bottom:18px;left:0;right:0;display:flex;justify-content:space-between;align-items:end;padding:0 22px;pointer-events:none}
+.control{pointer-events:auto;border:2px solid #a8d8ef88;background:#132c3bcc;color:#fff;border-radius:50%;width:82px;height:82px;font-size:13px;font-weight:bold;box-shadow:0 0 18px #3ca5d955;user-select:none;-webkit-user-select:none;touch-action:none}
+.control:active,.control.on{background:#277ba7dd;transform:scale(.96)}
+#fly{margin-left:5px}#shoot{margin-right:5px;border-color:#ffb6a088;background:#492327cc;box-shadow:0 0 18px #ff594755}
+#shoot:active,#shoot.on{background:#a73535dd}
+#overlay{position:fixed;inset:0;background:linear-gradient(145deg,#07111bee,#111e2bee);display:flex;align-items:center;justify-content:center;padding:20px;z-index:5}
+.card{width:min(420px,100%);padding:26px;border:1px solid #365568;border-radius:20px;background:#0d1a25;box-shadow:0 15px 50px #0009;text-align:center}
+h1{margin:0 0 7px;font-size:28px;letter-spacing:1px;color:#bdeaff}p{color:#b8c8d6;line-height:1.9;font-size:13px}
+input{width:100%;padding:13px;border-radius:10px;border:1px solid #476779;background:#07111a;color:white;font-size:16px;text-align:center;margin:10px 0}
+#start{width:100%;padding:13px;border:0;border-radius:10px;background:#42b5dc;color:#06131a;font-weight:bold;font-size:16px}
+.small{font-size:11px;color:#8fa6b6}
+@media(min-width:800px){.control{width:94px;height:94px}#controls{padding:0 40px}#map{width:150px;height:85px}}
+</style></head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"><div class="panel" id="status">سلام جنگجو<br>آماده‌ای؟</div><div class="panel"><div style="font-weight:bold;margin-bottom:4px">نقشه کوچک</div><canvas id="map" width="260" height="152"></canvas></div></div>
+<div id="controls"><button id="fly" class="control">✈ پرواز</button><button id="shoot" class="control">● شلیک</button></div>
+<div id="overlay"><div class="card"><h1>SHADOW ARENA</h1><p>یک میدان نبرد کوچک با آدمک‌های سایه‌ای، تفنگ، پرواز و نقشه زنده.<br>اسم بازیکنت رو وارد کن و شروع کن!</p><input id="name" maxlength="14" placeholder="اسم بازیکن" value="Shadow"><button id="start">شروع بازی</button><p class="small">موبایل: دکمه پرواز و شلیک · کامپیوتر: Space پرواز، کلیک یا Enter شلیک</p></div></div>
+<script>
+(()=> {
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d'),map=document.getElementById('map'),mctx=map.getContext('2d');
+let W=0,H=0,worldW=2200,worldH=1000,cameraX=0,cameraY=0,playing=false,playerName='Shadow',last=0,fly=false,shoot=false,keys={},bullets=[],particles=[],score=0;
+const ground=850, platforms=[{x:180,y:670,w:280,h:18},{x:560,y:560,w:230,h:18},{x:930,y:700,w:300,h:18},{x:1350,y:540,w:270,h:18},{x:1770,y:650,w:250,h:18},{x:700,y:390,w:190,h:16},{x:1500,y:350,w:220,h:16}];
+const player={x:160,y:ground-50,vx:0,vy:0,face:1,hp:100,alive:true,weapon:1};
+let bots=[];
+function resize(){W=canvas.width=Math.floor(innerWidth*devicePixelRatio);H=canvas.height=Math.floor(innerHeight*devicePixelRatio);canvas.style.width=innerWidth+'px';canvas.style.height=innerHeight+'px';ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);W=innerWidth;H=innerHeight}
+window.addEventListener('resize',resize);resize();
+function spawnBots(){bots=[];for(let i=0;i<9;i++)bots.push({x:350+i*205,y:ground-48,vx:0,vy:0,face:-1,hp:100,alive:true,fire:Math.random()*2});}
+spawnBots();
+function hold(el,down,up){el.addEventListener('pointerdown',e=>{e.preventDefault();el.setPointerCapture(e.pointerId);down();el.classList.add('on')});['pointerup','pointercancel','lostpointercapture'].forEach(ev=>el.addEventListener(ev,e=>{up();el.classList.remove('on')}))}
+hold(document.getElementById('fly'),()=>fly=true,()=>fly=false);hold(document.getElementById('shoot'),()=>shoot=true,()=>shoot=false);
+window.addEventListener('keydown',e=>{keys[e.code]=true;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();if(e.code==='Enter')shoot=true});
+window.addEventListener('keyup',e=>{keys[e.code]=false;if(e.code==='Enter')shoot=false});
+canvas.addEventListener('pointerdown',()=>{if(playing)shoot=true});canvas.addEventListener('pointerup',()=>shoot=false);
+document.getElementById('start').onclick=()=>{playerName=(document.getElementById('name').value.trim()||'Shadow').slice(0,14);document.getElementById('overlay').style.display='none';playing=true;player.x=160;player.y=ground-50;player.hp=100;player.alive=true;score=0;bullets=[];spawnBots();};
+function drawStick(p,color,withGun=true){ctx.save();ctx.translate(p.x-cameraX,p.y-cameraY);ctx.scale(p.face||1,1);ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=5;ctx.lineCap='round';ctx.beginPath();ctx.arc(0,-32,10,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.moveTo(0,-21);ctx.lineTo(0,8);ctx.moveTo(0,-12);ctx.lineTo(17,-4);ctx.moveTo(0,-12);ctx.lineTo(-12,-1);ctx.moveTo(0,8);ctx.lineTo(12,25);ctx.moveTo(0,8);ctx.lineTo(-12,25);ctx.stroke();if(withGun){ctx.fillStyle='#b5c9d4';ctx.fillRect(10,-8,27,5);ctx.fillStyle='#394b58';ctx.fillRect(19,-3,5,9)}ctx.restore()}
+function shootBullet(p,isPlayer){let face=p.face||1;bullets.push({x:p.x+face*35,y:p.y-9,vx:face*(isPlayer?650:400),vy:(isPlayer?0:Math.random()*70-35),life:2,owner:isPlayer?'p':'b'});}
+function particle(x,y){for(let i=0;i<7;i++)particles.push({x,y,vx:(Math.random()-.5)*180,vy:(Math.random()-.5)*180,life:.35})}
+function update(dt){if(!playing)return;let left=keys.ArrowLeft||keys.KeyA,right=keys.ArrowRight||keys.KeyD,up=keys.Space||keys.ArrowUp||fly;
+if(left){player.vx=-250;player.face=-1}else if(right){player.vx=250;player.face=1}else player.vx*=.82;
+if(up)player.vy=-330;else player.vy+=780*dt;
+player.x=Math.max(25,Math.min(worldW-35,player.x+player.vx*dt));player.y+=player.vy*dt;
+if(player.y+25>=ground){player.y=ground-25;player.vy=0}
+for(const pl of platforms){if(player.vy>=0&&player.x>pl.x-15&&player.x<pl.x+pl.w+15&&player.y+25>=pl.y&&player.y+25<pl.y+pl.h+20){player.y=pl.y-25;player.vy=0}}
+if(shoot){player.cool=(player.cool||0)-dt;if(player.cool<=0){shootBullet(player,true);player.cool=.18}}
+for(const b of bots){if(!b.alive)continue;b.face=player.x>b.x?1:-1;b.fire-=dt;if(Math.abs(player.x-b.x)<650&&b.fire<=0){shootBullet(b,false);b.fire=1.2+Math.random()*1.6}if(Math.abs(player.x-b.x)>130)b.x+=b.face*65*dt;}
+for(let i=bullets.length-1;i>=0;i--){let b=bullets[i];b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;let hit=false;if(b.owner==='p'){for(const bot of bots){if(bot.alive&&Math.abs(b.x-bot.x)<18&&Math.abs(b.y-(bot.y-10))<34){bot.hp-=35;particle(b.x,b.y);if(bot.hp<=0){bot.alive=false;score++}hit=true;break}}}else if(Math.abs(b.x-player.x)<18&&Math.abs(b.y-(player.y-10))<34){player.hp-=10;particle(b.x,b.y);hit=true;if(player.hp<=0){player.alive=false;playing=false;document.getElementById('overlay').style.display='flex';document.querySelector('h1').textContent='GAME OVER';document.querySelector('.card p').innerHTML=`امتیاز تو: ${score}<br>دوباره تلاش کن!`;document.getElementById('start').textContent='شروع دوباره';}}
+if(hit||b.life<=0||b.x<0||b.x>worldW)bullets.splice(i,1)}
+for(let i=particles.length-1;i>=0;i--){let p=particles[i];p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt;if(p.life<=0)particles.splice(i,1)}
+cameraX=Math.max(0,Math.min(worldW-W,player.x-W*.45));cameraY=0;
+document.getElementById('status').innerHTML=`<b>${escapeHtml(playerName)}</b><br>❤️ جان: ${Math.max(0,player.hp)}٪ &nbsp; | &nbsp; 🎯 امتیاز: ${score}<br>🤖 دشمن‌ها: ${bots.filter(b=>b.alive).length}`;
+}
+function escapeHtml(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function render(){ctx.clearRect(0,0,W,H);let grad=ctx.createLinearGradient(0,0,0,H);grad.addColorStop(0,'#101d2c');grad.addColorStop(1,'#203746');ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+// stars
+ctx.fillStyle='#6f9bb3';for(let i=0;i<65;i++){let x=((i*173-cameraX*.15)%W+W)%W,y=(i*79)%Math.max(150,H*.6);ctx.fillRect(x,y,2,2)}
+// distant skyline
+ctx.fillStyle='#152b39';for(let i=0;i<22;i++){let x=i*125-cameraX*.35;ctx.fillRect(x,H*.62-(i*37%70),70,H*.4)}
+// ground
+let gy=ground-cameraY;ctx.fillStyle='#344c56';ctx.fillRect(0,gy,W,H-gy);ctx.fillStyle='#6b929b';ctx.fillRect(0,gy,W,5);
+ctx.strokeStyle='#46616a';ctx.lineWidth=1;for(let x=-(cameraX%55);x<W;x+=55){ctx.beginPath();ctx.moveTo(x,gy+5);ctx.lineTo(x+25,H);ctx.stroke()}
+for(const pl of platforms){ctx.fillStyle='#617c87';ctx.fillRect(pl.x-cameraX,pl.y,pl.w,pl.h);ctx.fillStyle='#a6c6ce';ctx.fillRect(pl.x-cameraX,pl.y,pl.w,4)}
+for(const b of bots)if(b.alive){drawStick(b,'#050709');ctx.fillStyle='#ff6666';ctx.fillRect(b.x-cameraX-18,b.y-62,36,4);ctx.fillStyle='#57d18d';ctx.fillRect(b.x-cameraX-18,b.y-62,36*b.hp/100,4)}
+if(player.alive)drawStick(player,'#020304');
+for(const b of bullets){ctx.fillStyle=b.owner==='p'?'#8ce8ff':'#ff7373';ctx.beginPath();ctx.arc(b.x-cameraX,b.y,4,0,Math.PI*2);ctx.fill()}
+for(const p of particles){ctx.globalAlpha=Math.max(0,p.life/.35);ctx.fillStyle='#ffcb78';ctx.fillRect(p.x-cameraX,p.y,3,3)}ctx.globalAlpha=1;
+// mini map
+mctx.fillStyle='#12232d';mctx.fillRect(0,0,260,152);mctx.fillStyle='#526d77';mctx.fillRect(0,128,260,24);
+for(const pl of platforms){mctx.fillStyle='#8baab5';mctx.fillRect(pl.x/worldW*260,pl.y/worldH*152,pl.w/worldW*260,3)}
+for(const b of bots)if(b.alive){mctx.fillStyle='#ff5b63';mctx.fillRect(b.x/worldW*260-2,b.y/worldH*152-3,5,5)}
+mctx.fillStyle='#75e5ff';mctx.beginPath();mctx.arc(player.x/worldW*260,player.y/worldH*152,5,0,Math.PI*2);mctx.fill();mctx.strokeStyle='#b3e8ff';mctx.strokeRect(cameraX/worldW*260,0,Math.min(W,worldW)/worldW*260,152);
+}
+function loop(t){let dt=Math.min(.035,(t-last)/1000||0);last=t;update(dt);render();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+})();
+</script></body></html>
